@@ -3,6 +3,9 @@ import re
 import sys
 import subprocess
 import time
+import json
+import urllib.request
+import urllib.error
 
 # 尝试导入剪切板库，如果没有安装则提示
 try:
@@ -18,10 +21,7 @@ except ImportError:
     OpenAI = None
 
 # ================= 配置区域 =================
-# 如果使用 API 模式，请在此配置
-API_KEY = "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"  
-BASE_URL = "https://api.deepseek.com"          
-MODEL_NAME = "deepseek-chat"                   
+# API 配置现在通过 GUI 传入，不再硬编码
 
 # 路径配置
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -34,15 +34,80 @@ if not os.path.exists(MD_DIR): os.makedirs(MD_DIR)
 if not os.path.exists(TEMP_DIR): os.makedirs(TEMP_DIR)
 
 class Preprocessor:
-    def __init__(self):
+    def __init__(self, api_config=None):
+        """
+        Args:
+            api_config: dict, 包含 'api_key', 'base_url', 'model_name', 'provider' 等配置
+        """
         self.client = None
+        self.api_config = api_config or {}
 
     def init_api(self):
         """仅在需要 API 时初始化"""
         if OpenAI is None:
             print("[Error] 未安装 openai 库。请运行: pip install openai")
             sys.exit(1)
-        self.client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
+        
+        api_key = self.api_config.get('api_key', '')
+        base_url = self.api_config.get('base_url', '')
+        
+        if not api_key:
+            raise ValueError("API Key 未配置")
+        if not base_url:
+            raise ValueError("Base URL 未配置")
+        
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
+
+    def _build_chat_url(self, base_url):
+        base = (base_url or "").rstrip("/")
+        if base.endswith("/v1"):
+            return f"{base}/chat/completions"
+        return f"{base}/v1/chat/completions"
+
+    def _call_ai_api_simple(self, raw_text):
+        """兼容模式：绕过 OpenAI SDK，直接 HTTP 调用"""
+        api_key = self.api_config.get('api_key', '')
+        base_url = self.api_config.get('base_url', '')
+        if not api_key:
+            raise ValueError("API Key 未配置")
+        if not base_url:
+            raise ValueError("Base URL 未配置")
+
+        system_prompt = self.get_system_prompt()
+        model_name = self.api_config.get('model_name', 'gpt-3.5-turbo')
+
+        url = self._build_chat_url(base_url)
+        payload = {
+            "model": model_name,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"以下是论文原始内容，请按要求处理：\n\n{raw_text}"}
+            ],
+            "temperature": 0.05,
+            "stream": False
+        }
+
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            },
+            method="POST"
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                resp_text = resp.read().decode("utf-8", errors="ignore")
+                result = json.loads(resp_text)
+                return result["choices"][0]["message"]["content"]
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="ignore")
+            raise RuntimeError(f"HTTP {e.code}: {detail}")
+        except Exception as e:
+            raise RuntimeError(str(e))
 
     def convert_to_plain_text(self, input_path):
         """步骤 1: 使用 Pandoc 将 docx/md/pdf 转换为纯文本"""
@@ -75,25 +140,33 @@ class Preprocessor:
 
     def call_ai_api(self, raw_text):
         """API 模式: 直接调用接口"""
-        self.init_api()
         print("[2/4] [API模式] 正在发送给 AI 进行排版 (请耐心等待)...")
+        try:
+            self.init_api()
+        except Exception as e:
+            if "proxies" in str(e):
+                return self._call_ai_api_simple(raw_text)
+            raise
         
         system_prompt = self.get_system_prompt()
+        model_name = self.api_config.get('model_name', 'gpt-3.5-turbo')
         
         try:
             response = self.client.chat.completions.create(
-                model=MODEL_NAME,
+                model=model_name,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"以下是论文原始内容，请按要求处理：\n\n{raw_text}"}
                 ],
-                temperature=0.1,
+                temperature=0.05,
                 stream=False
             )
             return response.choices[0].message.content
         except Exception as e:
+            if "proxies" in str(e):
+                return self._call_ai_api_simple(raw_text)
             print(f"[Error] AI API 调用失败: {e}")
-            sys.exit(1)
+            raise
 
     def prepare_web_mode(self, raw_text):
         """网页模式: 拼接 Prompt 并复制到剪切板"""
@@ -142,12 +215,22 @@ class Preprocessor:
             print(f"[Error] 剪切板操作失败: {e}")
             return None
 
-    def split_and_save(self, ai_response):
-        """步骤 3: 解析 AI 返回的文本并拆分文件"""
+    def split_and_save(self, ai_response, output_dir=None):
+        """步骤 3: 解析 AI 返回的文本并拆分文件
+        
+        Args:
+            ai_response: AI 返回的文本
+            output_dir: 输出目录，如果为 None 则使用默认的 MD_DIR
+        """
         if not ai_response:
             return False
 
         print("[3/4] 正在拆分并保存 Markdown 文件...")
+        
+        # 确定输出目录
+        target_dir = output_dir if output_dir else MD_DIR
+        if not os.path.exists(target_dir):
+            os.makedirs(target_dir)
         
         # ==================== 修复报错的关键部分 ====================
         # 原报错原因：正则表达式字符串必须用引号包裹，否则 Python 会把 ``` 当作语法错误
@@ -179,7 +262,7 @@ class Preprocessor:
             filename = filename.strip()
             content = content.strip()
             
-            save_path = os.path.join(MD_DIR, filename)
+            save_path = os.path.join(target_dir, filename)
             
             with open(save_path, 'w', encoding='utf-8') as f:
                 f.write(content)
