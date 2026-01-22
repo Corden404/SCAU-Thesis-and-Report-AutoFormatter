@@ -187,7 +187,7 @@ def update_toc(doc_path):
 
 def main():
     print("="*50)
-    print("      SCAU 论文拼装流水线")
+    print("      SCAU 论文拼装流水线 (v2.0)")
     print("="*50)
 
     # 1. 转换 Markdown 部分

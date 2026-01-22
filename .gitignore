@@ -8,8 +8,6 @@ __pycache__/
 /temp/
 
 # Generated outputs (keep source templates under assets/)
-/Final_Thesis.docx
-/reference.docx
 
 # OS
 .DS_Store
