@@ -256,8 +256,9 @@ def main():
     p = doc.add_paragraph("参考文献 (黑体不加粗)", style="SCAU_Section_Centered")
     p = doc.add_paragraph("[1] Author. Title. Journal. 2024.", style="SCAU_References_Body")
 
-    output_file = 'reference.docx'
+    output_file = 'reference.generated.docx'
     doc.save(output_file)
+    print(f"成功生成: {output_file}")
     print(f"成功生成: {output_file}")
 
 if __name__ == "__main__":
