@@ -1,13 +1,11 @@
-::: {custom-style="SCAU_English_Title"}
-Abstract
-:::
-
-::: {custom-style="SCAU_Abstract_En"}
-With the rapid development of Internet technology, the acquisition and processing of massive data have become the core links in the fields of big data analysis, search engines, and artificial intelligence. Traditional single-machine crawlers often suffer from bottlenecks in bandwidth, memory, and computing resources when facing tens of millions or even hundreds of millions of web pages, making it difficult to complete efficient data collection in a short time. To solve this problem, this paper designs and implements a large-scale distributed Web crawler system based on Scrapy-Redis.
-
-This paper first analyzes the core principles of distributed crawlers and compares the advantages and disadvantages of master-slave architecture and peer-to-peer architecture. Subsequently, using the Redis database as the distributed queue and deduplication center, combined with the efficient asynchronous processing capability of the Scrapy framework, a horizontally scalable crawler cluster was constructed. The system implements functions such as request scheduling and distribution, data deduplication, persistent storage, and exception retries. Experimental tests show that the system can significantly improve crawling efficiency when dealing with large-scale target websites and has good fault tolerance and load balancing capabilities. Finally, this paper cleans and performs preliminary analysis on the collected data, verifying the practical value of the system.
-:::
-
-::: {custom-style="SCAU_Keywords"}
-[Key words:]{custom-style="SCAU_Keyword_Label"} Distributed Crawler; Scrapy-Redis; Data Collection; Redis; Load Balancing
+::: {custom-style="SCAU_English_Title"}
+Abstract
+:::
+
+::: {custom-style="SCAU_Abstract_En"}
+With the rapid development of e-commerce, logistics distribution efficiency has become a core indicator of the competitiveness of modern logistics enterprises. Traditional path planning algorithms (such as A* and Dijkstra) often suffer from heavy computational loads and poor real-time performance when dealing with dynamic and multi-constrained logistics environments. This paper proposes a path optimization scheme based on Deep Reinforcement Learning (DRL). By constructing a Markov Decision Process (MDP) model and employing the Proximal Policy Optimization (PPO) algorithm, autonomous decision-making and path optimization for delivery vehicles in complex urban traffic environments are achieved. Experimental results demonstrate that the system outperforms traditional algorithms in terms of delivery time cost and path stability, effectively handling sudden traffic conditions and enhancing the intelligence of logistics distribution.
+:::
+
+::: {custom-style="SCAU_Keywords"}
+[Key words:]{custom-style="SCAU_Keyword_Label"} Deep Reinforcement Learning; Path Optimization; PPO Algorithm; Intelligent Logistics; Markov Decision Process
 :::
