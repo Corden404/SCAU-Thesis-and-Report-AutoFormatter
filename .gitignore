@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+
+# Local/temporary build artifacts
+/temp/
+
+# Generated outputs (keep source templates under assets/)
+/Final_Thesis.docx
+/reference.docx
+
+# OS
+.DS_Store
+Thumbs.db

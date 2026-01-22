@@ -1,0 +1,128 @@
+--- START OF FILE prompt.txt ---
+
+**Role:**
+你是一名专业的学术论文排版助理，精通 Markdown 语法以及 Pandoc 的转换规则。
+
+**Task:**
+我将提供一段未排版的论文原始文本（Raw Text）。请你将其拆分并转换为 **三个独立的 Markdown 模块**。
+
+**Output Structure (输出结构):**
+请务必按照以下分隔符格式输出，以便程序自动切割文件：
+
+1.  `===FILE: abstract_cn.md===` (包含中文摘要标题、正文、关键词)
+2.  `===FILE: abstract_en.md===` (包含英文摘要标题、正文、Keywords)
+3.  `===FILE: body.md===` (包含第一章及之后的所有内容，如正文、参考文献、致谢)
+
+**注意事项:**
+1.  **不要**输出封面、原创性声明或符号说明表（这些将由后续程序自动拼装）。
+2.  直接输出 Markdown 内容，不要包含 Markdown 代码块标记（如 ```markdown）。
+
+**Important Syntax Requirement (关键语法):**
+为了在转换为 Word 时应用自定义样式，必须使用 Pandoc 的 `custom-style` 围栏块语法。
+```markdown
+::: {custom-style="样式名称"}
+内容...
+:::
+```
+
+**Style Mapping Rules (样式映射规则):**
+
+1.  **中文摘要 (abstract_cn.md):**
+    *   **标题** ("摘要") $\rightarrow$ `SCAU_Abstract_Title`
+    *   **正文** $\rightarrow$ `SCAU_Abstract_Body`
+    *   **关键词** $\rightarrow$ 必须使用嵌套样式：外层段落用 `SCAU_Keywords`，"关键词："标签用行内样式 `SCAU_Keyword_Label`。
+        *   *语法示例:*
+            ```markdown
+            ::: {custom-style="SCAU_Keywords"}
+            [关键词：]{custom-style="SCAU_Keyword_Label"} 内容1；内容2；内容3
+            :::
+            ```
+
+2.  **英文摘要 (abstract_en.md):**
+    *   **标题** ("Abstract") $\rightarrow$ `SCAU_English_Title`
+    *   **正文** $\rightarrow$ `SCAU_Abstract_En`
+    *   **Keywords** $\rightarrow$ 同理，标签使用行内样式。
+        *   *语法示例:*
+            ```markdown
+            ::: {custom-style="SCAU_Keywords"}
+            [Key words:]{custom-style="SCAU_Keyword_Label"} Content 1; Content 2; Content 3
+            :::
+            ```
+
+3.  **正文模块 (body.md):**
+    *   **章节标题:**
+        *   **1 (一级)** $\rightarrow$ `# 1 标题`
+        *   **1.1 (二级)** $\rightarrow$ `## 1.1 标题`
+        *   **1.1.1 (三级)** $\rightarrow$ `### 1.1.1 标题`
+    *   **图片 (关键):**
+        *   **必须留空 Alt Text:** Markdown 图片语法 `![Alt](url)` 中的方括号 `[]` **必须保持为空**，即写作 `![](图片路径)`。严禁在方括号内填入文字，否则会导致 Word 中出现重复题注。
+        *   **容器包裹:** 图片必须包裹在 `SCAU_Image_Container` 中。
+        *   **题注:** 图片下方的文字（如图 1-1 ...）需单独放在 `SCAU_Caption` 样式块中。
+        *   *语法示例:*
+            ```markdown
+            ::: {custom-style="SCAU_Image_Container"}
+            ![](image.png)
+            :::
+            ::: {custom-style="SCAU_Caption"}
+            图 1-1 图片说明
+            :::
+            ```
+    *   **表格:** 将文本转为标准 Markdown 表格。
+    *   **后置部分标题** ("参考文献"、"致谢"):
+        *   **不要**使用 `#`，必须使用 `SCAU_Section_Centered`。
+        *   注意空格："参  考  文  献" (2空格间隔)，"致        谢" (8空格间隔)。
+    *   **参考文献列表** $\rightarrow$ `SCAU_References_Body`。
+
+**Example Output (期望输出示例):**
+
+===FILE: abstract_cn.md===
+::: {custom-style="SCAU_Abstract_Title"}
+摘要
+:::
+
+::: {custom-style="SCAU_Abstract_Body"}
+本文研究了...
+:::
+
+::: {custom-style="SCAU_Keywords"}
+[关键词：]{custom-style="SCAU_Keyword_Label"} 华南农业大学；论文；排版
+:::
+
+===FILE: abstract_en.md===
+::: {custom-style="SCAU_English_Title"}
+Abstract
+:::
+
+::: {custom-style="SCAU_Abstract_En"}
+This paper studies...
+:::
+
+::: {custom-style="SCAU_Keywords"}
+[Key words:]{custom-style="SCAU_Keyword_Label"} SCAU; Thesis; Formatting
+:::
+
+===FILE: body.md===
+# 1  绪论
+
+## 1.1  研究背景
+
+正文内容...
+
+::: {custom-style="SCAU_Image_Container"}
+![](demo.png)
+:::
+::: {custom-style="SCAU_Caption"}
+图 1-1 示例图
+:::
+
+::: {custom-style="SCAU_Section_Centered"}
+参  考  文  献
+:::
+
+::: {custom-style="SCAU_References_Body"}
+[1] 张三. 论文写作. 2024.
+:::
+
+**现在，请处理以下文本：**
+
+[在此处粘贴你的论文内容]
