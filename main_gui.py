@@ -592,8 +592,29 @@ class DropArea(QLabel):
     def dropEvent(self, event: QDropEvent):
         # 获取文件路径
         files = [u.toLocalFile() for u in event.mimeData().urls()]
-        if files:
-            self.file_dropped.emit(files[0])
+        if not files:
+            return
+
+        allowed_exts = {".docx", ".md", ".txt"}
+
+        # 支持一次拖入多个时：选择第一个合法文件
+        for path in files:
+            if not path:
+                continue
+            if not os.path.isfile(path):
+                continue
+            ext = os.path.splitext(path)[1].lower()
+            if ext in allowed_exts:
+                self.file_dropped.emit(path)
+                return
+
+        # 没有任何合法文件
+        QMessageBox.warning(
+            self,
+            "不支持的文件类型",
+            "仅支持拖入 .docx / .md / .txt 文件。\n\n"
+            "你拖入的内容不属于以上格式。",
+        )
 
 
 # ================= 主窗口 =================
