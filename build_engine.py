@@ -1,6 +1,8 @@
 import os
 import subprocess
 import win32com.client as win32
+import pythoncom
+import time
 from datetime import datetime
 
 # ================= 1. 配置与资源注册表 =================
@@ -122,84 +124,128 @@ class DocumentBuilder:
             for toc in doc.TablesOfContents:
                 toc.Update()
 
-    def build(self, component_keys, output_filename="Final_Output.docx"):
-        """
-        主入口：根据传入的 keys 列表组装文档
-        :param component_keys: list of str, e.g. ['cover', 'body']
-        :param output_filename: str, 输出文件名
-        """
-        print("="*50)
-        print(f"开始构建文档: {output_filename}")
-        print(f"包含组件: {component_keys}")
-        print("="*50)
+    def build(self, component_keys, output_filename="Final_Output.docx", component_registry=None):
+        """主入口：根据传入的 keys 列表组装文档（支持线程内调用）"""
 
-        # 1. 准备文件列表
-        files_to_merge = []
-        for key in component_keys:
-            if key not in COMPONENT_REGISTRY:
-                print(f"[Warning] 未知组件 key: {key}，已跳过")
-                continue
-            
-            item = COMPONENT_REGISTRY[key]
-            
-            if item["type"] == "static":
-                if os.path.exists(item["path"]):
-                    files_to_merge.append(item["path"])
-                else:
-                    print(f"[Error] 静态资源丢失: {item['path']}")
-            
-            elif item["type"] == "md":
-                # 动态转换 Markdown
-                print(f"   -> 转换 Markdown: {item['desc']}")
-                temp_docx_name = f"temp_{key}.docx"
-                temp_path = os.path.join(Config.TEMP_DIR, temp_docx_name)
-                result = self._pandoc_convert(item["path"], temp_path)
-                if result:
-                    files_to_merge.append(result)
+        # 1. 初始化线程 COM 环境 (必须！)
+        pythoncom.CoInitialize()
 
-        if not files_to_merge:
-            print("[Error] 没有有效的文件可供合并，流程终止。")
-            return
-
-        # 2. 调用 Word 进行合并
-        print(f"[Merge] 正在合并 {len(files_to_merge)} 个文件...")
-        self.word_app = win32.Dispatch("Word.Application")
-        self.word_app.Visible = False
-        self.word_app.DisplayAlerts = False
-
+        new_doc = None
         try:
-            # 基于模板新建文档
-            new_doc = self.word_app.Documents.Add(Template=Config.REF_DOC)
-            if new_doc.Content.End > 1:
-                new_doc.Content.Delete()
+            print("="*50)
+            print(f"开始构建文档: {output_filename}")
+            print(f"包含组件: {component_keys}")
+            print("="*50)
 
-            selection = self.word_app.Selection
+            registry = component_registry or COMPONENT_REGISTRY
 
-            for i, file_path in enumerate(files_to_merge):
-                print(f"   -> 插入: {os.path.basename(file_path)}")
-                selection.InsertFile(FileName=file_path)
-                
-                # 只有当不是最后一个文件时，才插入分页符
-                if i < len(files_to_merge) - 1:
-                    selection.InsertBreak(Type=Config.WD_PAGE_BREAK)
+            # 2. 准备文件列表
+            files_to_merge = []
+            for key in component_keys:
+                if key not in registry:
+                    print(f"[Warning] 未知组件 key: {key}，已跳过")
+                    continue
 
-            # 3. 后处理
-            self._update_toc(new_doc)
-            self._process_styles(new_doc)
+                item = registry[key]
 
-            # 4. 保存
-            abs_output_path = os.path.join(Config.BASE_DIR, output_filename)
-            new_doc.SaveAs(abs_output_path)
-            new_doc.Close()
-            print(f"\n[Success] 文档生成完毕: {abs_output_path}")
+                if item["type"] == "static":
+                    if os.path.exists(item["path"]):
+                        files_to_merge.append(item["path"])
+                    else:
+                        print(f"[Error] 静态资源丢失: {item['path']}")
 
-        except Exception as e:
-            print(f"\n[Fatal Error] 构建过程出错: {e}")
-            if 'new_doc' in locals():
-                new_doc.Close(SaveChanges=False)
-        finally:
-            self.word_app.Quit()
+                elif item["type"] == "md":
+                    # 动态转换 Markdown
+                    print(f"   -> 转换 Markdown: {item['desc']}")
+                    temp_docx_name = f"temp_{key}.docx"
+                    temp_path = os.path.join(Config.TEMP_DIR, temp_docx_name)
+                    result = self._pandoc_convert(item["path"], temp_path)
+                    if result:
+                        files_to_merge.append(result)
+
+            if not files_to_merge:
+                print("[Error] 没有文件可合并")
+                return
+
+            # 3. 启动 Word 进行合并
+            print(f"[Merge] 正在启动 Word 进行合并...")
             self.word_app = None
+
+            try:
+                # === 健壮的 Word 启动逻辑 ===
+                try:
+                    self.word_app = win32.DispatchEx("Word.Application")
+                except Exception as e:
+                    # 捕获“服务器运行失败”，通常是因为此时屏幕上有个 Word 弹窗
+                    if "服务器运行失败" in str(e) or "-2146959355" in str(e):
+                        raise Exception(
+                            "Word 启动失败。请检查：\n"
+                            "1. 屏幕上是否有 Word 的安全弹窗或报错？请手动关闭它们。\n"
+                            "2. 后台是否卡死了 WINWORD.EXE 进程？\n"
+                            "3. 建议先打开一个空白 Word 文档，确保没有弹窗后再运行本工具。"
+                        ) from e
+                    raise
+
+                # 稍等一下让 Word 完成初始化（减少偶发 COM 抖动）
+                time.sleep(0.2)
+
+                # 设置不可见，避免闪烁
+                self.word_app.Visible = False
+
+                # === 关键：尝试禁止弹窗 ===
+                # 0 = wdAlertsNone
+                self.word_app.DisplayAlerts = 0
+
+                # 新建文档（基于 reference 模板）
+                new_doc = self.word_app.Documents.Add(Template=Config.REF_DOC)
+                if new_doc.Content.End > 1:
+                    new_doc.Content.Delete()
+
+                selection = self.word_app.Selection
+
+                for i, file_path in enumerate(files_to_merge):
+                    print(f"   -> 插入: {os.path.basename(file_path)}")
+                    selection.InsertFile(FileName=file_path)
+
+                    # 只有当不是最后一个文件时，才插入分页符
+                    if i < len(files_to_merge) - 1:
+                        selection.InsertBreak(Type=Config.WD_PAGE_BREAK)
+
+                # 后处理
+                self._update_toc(new_doc)
+                self._process_styles(new_doc)
+
+                # 保存
+                abs_output_path = output_filename
+                if not os.path.isabs(abs_output_path):
+                    abs_output_path = os.path.join(Config.BASE_DIR, abs_output_path)
+
+                new_doc.SaveAs(abs_output_path)
+                new_doc.Close()
+                new_doc = None
+                print(f"\n[Success] 文档生成完毕: {abs_output_path}")
+
+            except Exception as e:
+                print(f"\n[Fatal Error] {e}")
+                # 如果是 GUI 调用，这个 print 会被重定向到日志框，用户能看到提示
+                if new_doc is not None:
+                    try:
+                        new_doc.Close(SaveChanges=False)
+                    except Exception:
+                        pass
+                    new_doc = None
+
+            finally:
+                if self.word_app:
+                    try:
+                        self.word_app.Quit()
+                    except Exception:
+                        pass
+                self.word_app = None
+
+        finally:
+            # 释放 COM 环境
+            pythoncom.CoUninitialize()
 
 
 # ================= 3. 用户调用层 (CLI 模拟) =================

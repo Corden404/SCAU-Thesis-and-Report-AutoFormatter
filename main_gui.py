@@ -22,7 +22,6 @@ from preprocess import Preprocessor
 # ================= API 配置文件路径 =================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "api_config.json")
-
 # 预设的 API 配置模板
 API_PRESETS = {
     "OpenAI": {
@@ -82,6 +81,7 @@ class WorkerThread(QThread):
     finish_signal = pyqtSignal(bool)   # 任务结束信号
     ask_user_signal = pyqtSignal(str)  # 请求用户操作信号 (用于网页模式)
     ask_save_signal = pyqtSignal(str)  # 请求保存路径信号
+    error_signal = pyqtSignal(str, str)  # 错误提示弹窗（标题, 内容）
 
     def __init__(self, input_path, mode, components, api_config=None):
         super().__init__()
@@ -168,20 +168,20 @@ class WorkerThread(QThread):
                 # 4. 组装 Word 文档到临时位置
                 self.log(f"🔨 正在组装 Word 文档 (包含: {len(self.components)} 个组件)...")
 
-                # 临时修改 COMPONENT_REGISTRY 中的 markdown 文件路径
-                original_paths = {}
+                # 构造局部 registry，覆盖 markdown 文件路径（避免修改全局 COMPONENT_REGISTRY，线程更安全）
+                local_registry = {k: dict(v) for k, v in build_engine.COMPONENT_REGISTRY.items()}
                 for key in ["abs_cn", "abs_en", "body"]:
-                    if key in build_engine.COMPONENT_REGISTRY:
-                        original_paths[key] = build_engine.COMPONENT_REGISTRY[key]["path"]
-                        # 更新为临时目录中的路径
-                        filename = os.path.basename(original_paths[key])
-                        build_engine.COMPONENT_REGISTRY[key]["path"] = os.path.join(self.temp_md_dir, filename)
+                    if key in local_registry:
+                        original_path = local_registry[key].get("path", "")
+                        filename = os.path.basename(original_path) if original_path else ""
+                        if filename:
+                            local_registry[key]["path"] = os.path.join(self.temp_md_dir, filename)
                 
                 temp_output = os.path.join(self.temp_md_dir, "temp_output.docx")
                 
                 try:
                     # 调用构建器，先输出到临时文件
-                    builder.build(self.components, temp_output)
+                    builder.build(self.components, temp_output, component_registry=local_registry)
                     self.log("✅ Word 文档组装完成！")
                     
                     # 5. 现在让用户选择最终保存位置
@@ -198,15 +198,23 @@ class WorkerThread(QThread):
 
                     # 6. 复制临时文件到用户选择的位置
                     self.log(f"📦 正在保存文档到: {os.path.basename(self.save_path)}...")
-                    shutil.copy2(temp_output, self.save_path)
+                    try:
+                        shutil.copy2(temp_output, self.save_path)
+                    except PermissionError:
+                        self.log("❌ 保存失败：目标文件可能正在被占用（常见于 Word 已打开同名文档）。")
+                        self.error_signal.emit(
+                            "保存失败（文件被占用）",
+                            "检测到目标 .docx 可能正在被 Word 占用。\n\n"
+                            "请你先手动关闭已打开的 Word 文档（不要让程序代替你关闭，以免丢失未保存内容），\n"
+                            "然后重新点击开始排版并选择保存路径。"
+                        )
+                        self.finish_signal.emit(False)
+                        return
                     
                     self.log(f"🎉 全部完成！\n输出文件: {os.path.abspath(self.save_path)}")
                     self.finish_signal.emit(True)
                     
                 finally:
-                    # 恢复原始路径
-                    for key, path in original_paths.items():
-                        build_engine.COMPONENT_REGISTRY[key]["path"] = path
                     # 清理临时目录
                     self._cleanup_temp_dir()
                 
@@ -746,9 +754,34 @@ class MainWindow(QMainWindow):
         sb = self.txt_log.verticalScrollBar()
         sb.setValue(sb.maximum())
 
+    def is_file_locked(self, filepath):
+        """检查文件是否被占用（尝试以追加模式打开）"""
+        if not os.path.exists(filepath):
+            return False
+        try:
+            # 尝试以追加模式打开文件
+            # 如果文件被 Word 打开，这里通常会抛出 PermissionError
+            with open(filepath, 'a'):
+                pass
+            return False
+        except PermissionError:
+            return True
+        except Exception:
+            return False
+
     def start_process(self):
         if not self.input_file:
             QMessageBox.warning(self, "提示", "请先拖入论文文件！")
+            return
+
+        # === 新增：文件占用检测（启动 Worker 前做） ===
+        if self.is_file_locked(self.input_file):
+            QMessageBox.critical(
+                self,
+                "无法访问文件",
+                f"检测到文件正在被使用：\n{self.input_file}\n\n"
+                "请先关闭 Microsoft Word 或其他占用该文件的程序，然后再试。",
+            )
             return
 
         # 获取选中的组件 Key
@@ -786,7 +819,11 @@ class MainWindow(QMainWindow):
         self.worker.finish_signal.connect(self.on_finish)
         self.worker.ask_user_signal.connect(self.on_ask_user)
         self.worker.ask_save_signal.connect(self.on_ask_save)
+        self.worker.error_signal.connect(self.on_worker_error)
         self.worker.start()
+
+    def on_worker_error(self, title, message):
+        QMessageBox.warning(self, title, message)
 
     def on_ask_user(self, msg):
         """处理网页模式的弹窗交互"""

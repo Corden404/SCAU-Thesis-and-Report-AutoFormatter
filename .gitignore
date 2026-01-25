@@ -9,11 +9,13 @@ __pycache__/
 
 # Local/temporary build artifacts
 /temp/
+/test.jpg
 
 # Generated outputs (keep source templates under assets/)
 
-/Final_Thesis.docx
+/
 /reference.generated.docx
+Output_*.docx
 
 # OS
 .DS_Store
