@@ -140,10 +140,11 @@ class WorkerThread(QThread):
                 
                 # 发送信号给主界面，弹窗提示用户
                 msg = (
-                    "1. 请打开 AI 网页，点击下方你熟悉的AI快速跳转，或选择其他AI。\n"
-                    "2. 待处理文本已复制到你的剪切板，粘贴（ctrl + v）发送给AI。\n"
+                    "你现在要做的事情：\n"
+                    "1. 选择下方任何一个你熟悉的AI，打开深度思考模式。\n"
+                    "2. 在对话框直接按粘贴（ctrl + v）发送给AI。你不需要在意发送了什么，这部分工具已自动帮你处理好。\n"
                     "3. 等待AI生成完毕，复制 AI 的回复。\n"
-                    "4. 复制好后，粘贴到下方的输入框内，再点击下方的【确定】按钮。"
+                    "4. 复制好后，粘贴到这个工具下方的输入框内，再点击下方的【确定】按钮。"
                 )
                 self.ask_user_signal.emit(msg)
                 
@@ -515,7 +516,11 @@ class WebModeDialog(QDialog):
             "Kimi": "https://kimi.moonshot.cn/",
             "ChatGPT": "https://chat.openai.com/",
             "Gemini": "https://gemini.google.com/",
+            "Grok": "https://grok.com/",
             "Claude": "https://claude.ai/",
+            "豆包": "https://www.doubao.com/chat/",
+            "千问": "https://chat.qwen.ai/",
+            "Google AI Studio": "https://ai.google.com/studio",
         }
         for name, url in links.items():
             btn = QPushButton(name)
@@ -652,7 +657,7 @@ class MainWindow(QMainWindow):
         grp_mode.setFont(QFont("微软雅黑", 11, QFont.Weight.Bold))
         layout_mode = QHBoxLayout()
         
-        self.rb_web = QRadioButton("网页手动模式 (推荐 DeepSeek R1 / ChatGPT)")
+        self.rb_web = QRadioButton("网页手动模式 (推荐 DeepSeek  / ChatGPT)")
         self.rb_api = QRadioButton("API 自动模式 (需配置 Key)")
         self.rb_web.setFont(QFont("微软雅黑", 10))
         self.rb_api.setFont(QFont("微软雅黑", 10))
