@@ -10,6 +10,7 @@ __pycache__/
 # Local/temporary build artifacts
 /temp/
 /test.jpg
+/test/
 
 # Generated outputs (keep source templates under assets/)
 

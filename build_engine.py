@@ -29,7 +29,8 @@ class Config:
 # 组件注册表：定义所有可用的模块
 # type: 'static' (Word文件) | 'md' (Markdown文件)
 COMPONENT_REGISTRY = {
-    "cover":       {"type": "static", "path": os.path.join(Config.ASSETS_DIR, "cover.docx"), "desc": "封面"},
+    "cover":       {"type": "static", "path": os.path.join(Config.ASSETS_DIR, "cover.docx"), "desc": "论文封面"},
+    "cover_exp":   {"type": "static", "path": os.path.join(Config.ASSETS_DIR, "cover_exp.docx"), "desc": "实验报告封面"},
     "originality": {"type": "static", "path": os.path.join(Config.ASSETS_DIR, "originality_declaration.docx"), "desc": "原创性声明"},
     "abs_cn":      {"type": "md",     "path": os.path.join(Config.MD_DIR, "abstract_cn.md"), "desc": "中文摘要"},
     "abs_en":      {"type": "md",     "path": os.path.join(Config.MD_DIR, "abstract_en.md"), "desc": "英文摘要"},

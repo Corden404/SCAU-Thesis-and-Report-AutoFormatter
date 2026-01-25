@@ -8,11 +8,29 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QLabel, QPushButton, QTextEdit, QHBoxLayout, 
                              QGroupBox, QCheckBox, QRadioButton, QMessageBox,
                              QDialog, QFileDialog, QComboBox, QLineEdit, QFormLayout)
+from PyQt6.QtWidgets import QButtonGroup
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QUrl
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QFont, QDesktopServices
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QFont, QDesktopServices, QPixmap
 import json
 import urllib.request
 import urllib.error
+
+
+# ================= 组件预设配置 =================
+# Key 对应 build_engine.COMPONENT_REGISTRY 的键
+PRESETS = {
+    "thesis": ["cover", "originality", "abs_cn", "abs_en", "symbols", "toc", "body"],
+    "paper": ["cover", "abs_cn", "body"],
+    "report": ["cover_exp", "toc", "body"],
+}
+
+
+# ================= 资源路径辅助函数 =================
+def resource_path(relative_path):
+    """获取资源的绝对路径，兼容开发环境和 PyInstaller 打包环境"""
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
 
 # ================= 导入后端模块 =================
 # 确保这两个文件在同一目录下
@@ -536,7 +554,7 @@ class WebModeDialog(QDialog):
         layout.addWidget(input_label)
 
         self.input_text = QTextEdit()
-        self.input_text.setPlaceholderText("在此粘贴 AI 返回的完整内容...")
+        self.input_text.setPlaceholderText("在此粘贴（ctrl + v） AI 返回的完整内容...")
         self.input_text.setFont(QFont("微软雅黑", 10))
         self.input_text.setMinimumHeight(160)
         layout.addWidget(self.input_text)
@@ -622,13 +640,189 @@ class DropArea(QLabel):
         )
 
 
+# ================= 新手教程对话框 =================
+class TutorialDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("SCAU 论文排版助手 - 新手引导")
+        self.resize(950, 680) # 稍微调大一点，为了展示对比图的细节
+        self.current_step = 0
+        
+        # === 修改核心：增加了前4个对比步骤 ===
+        self.steps = [
+            # --- 阶段一：痛点展示 (排版前) ---
+            {
+                "img": "未排版的文档docx.png",
+                "title": "排版前：杂乱无章的 Word 草稿",
+                "text": "你是否还在为格式发愁？\n"
+                        "字体大小不一、行距混乱、图片没居中、引用格式错误……\n"
+                        "手动修改这些细节通常需要耗费数小时。"
+            },
+            {
+                "img": "未排版的文档txt.png",
+                "title": "排版前：哪怕是纯文本也能搞定",
+                "text": "即使你只有一份用记事本写的 .txt 纯文本，或者 Markdown 文件，\n"
+                        "完全没有样式，本工具也能识别并处理。"
+            },
+            
+            # --- 阶段二：效果展示 (排版后) ---
+            {
+                "img": "排版好的文档1.png",
+                "title": "排版后：一键生成标准封面与摘要",
+                "text": "使用本工具处理后：\n"
+                        "✅ 封面、原创性声明自动生成，信息准确。\n"
+                        "✅ 中英文摘要字体、字号、悬挂缩进严格符合学校规范。"
+            },
+            {
+                "img": "排版好的文档2.png",
+                "title": "排版后：完美的目录与正文格式",
+                "text": "✅ 目录自动生成（带页码跳转）。\n"
+                        "✅ 正文三级标题自动编号。\n"
+                        "✅ 图片自动居中，三线表格式自动调整。\n"
+                        "✅ 参考文献自动生成并按标准格式引用。"
+            },
+
+            # --- 阶段三：操作教程 (原有步骤) ---
+            {
+                "img": "step1.png",
+                "title": "教程第1步：加载文件与模式选择",
+                "text": "1. 将你的原稿（.docx / .txt）直接拖入上方的虚线框内。\n"
+                        "2. 勾选“网页手动模式”（推荐使用 DeepSeek）。\n"
+                        "3. 勾选你需要的组件（封面、正文等），点击【开始排版】。"
+            },
+            {
+                "img": "step2.png",
+                "title": "教程第2步：获取提示词与跳转",
+                "text": "1. 软件会自动生成“提示词+论文内容”并复制到你的剪切板。\n"
+                        "2. 点击弹窗中的快捷按钮（如 DeepSeek），浏览器会自动打开 AI 网站。\n"
+                        "3. 此时保持本软件不要关闭，去浏览器进行下一步操作。"
+            },
+            {
+                "img": "step3.png",
+                "title": "教程第3步：AI 处理（关键）",
+                "text": "1. 在 AI 对话框中，直接按 Ctrl+V 粘贴刚刚复制的内容。\n"
+                        "2. 强烈建议开启“深度思考”模式，排版逻辑更严密。\n"
+                        "3. 点击发送，耐心等待 AI 输出完毕。"
+            },
+            {
+                "img": "step4.png",
+                "title": "教程第4步：回填结果",
+                "text": "1. 待 AI 输出完成后，点击 AI 界面下方的【复制】图标。\n"
+                        "2. 回到本软件，将内容粘贴到输入框中。\n"
+                        "3. 点击【确定】，软件将自动开始生成最终的 Word 文档。"
+            }
+        ]
+
+        self.init_ui()
+        self.update_content()
+
+    def init_ui(self):
+        # 保持之前的 UI 代码不变
+        layout = QVBoxLayout(self)
+        
+        # 1. 图片展示区
+        self.lbl_image = QLabel()
+        self.lbl_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_image.setStyleSheet("background-color: #f0f0f0; border: 1px solid #ddd; border-radius: 8px;")
+        # 图片区域稍微留大一点
+        self.lbl_image.setMinimumSize(900, 500) 
+        layout.addWidget(self.lbl_image)
+
+        # 2. 文字说明区
+        text_container = QWidget()
+        text_layout = QVBoxLayout(text_container)
+        
+        self.lbl_title = QLabel()
+        self.lbl_title.setFont(QFont("微软雅黑", 14, QFont.Weight.Bold))
+        self.lbl_title.setStyleSheet("color: #2196F3;")
+        
+        self.lbl_text = QLabel()
+        self.lbl_text.setFont(QFont("微软雅黑", 11))
+        self.lbl_text.setWordWrap(True)
+        
+        text_layout.addWidget(self.lbl_title)
+        text_layout.addWidget(self.lbl_text)
+        layout.addWidget(text_container)
+
+        # 3. 底部按钮区
+        btn_layout = QHBoxLayout()
+        self.btn_prev = QPushButton("上一步")
+        self.btn_next = QPushButton("下一步")
+        
+        for btn in [self.btn_prev, self.btn_next]:
+            btn.setFixedHeight(40)
+            btn.setFont(QFont("微软雅黑", 10))
+            btn.setMinimumWidth(100)
+        
+        self.btn_prev.clicked.connect(self.prev_step)
+        self.btn_next.clicked.connect(self.next_step)
+        
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.btn_prev)
+        btn_layout.addWidget(self.btn_next)
+        layout.addLayout(btn_layout)
+
+    def update_content(self):
+        """根据 current_step 更新界面"""
+        data = self.steps[self.current_step]
+        
+        # 更新文字
+        step_indicator = f"({self.current_step + 1}/{len(self.steps)}) "
+        self.lbl_title.setText(step_indicator + data["title"])
+        self.lbl_text.setText(data["text"])
+        
+        # 更新图片
+        img_path = resource_path(os.path.join("引导", data["img"]))
+        
+        if os.path.exists(img_path):
+            pixmap = QPixmap(img_path)
+            # 图片自适应缩放，保持比例
+            if not pixmap.isNull():
+                scaled_pix = pixmap.scaled(
+                    self.lbl_image.size(), 
+                    Qt.AspectRatioMode.KeepAspectRatio, 
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                self.lbl_image.setPixmap(scaled_pix)
+            else:
+                self.lbl_image.setText("图片加载失败")
+        else:
+            self.lbl_image.setText(f"图片丢失: {data['img']}\n请确保图片在'引导'文件夹内")
+
+        # 更新按钮状态
+        self.btn_prev.setEnabled(self.current_step > 0)
+        
+        if self.current_step == len(self.steps) - 1:
+            self.btn_next.setText("开启排版之旅")
+            self.btn_next.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; border-radius: 5px;")
+        else:
+            self.btn_next.setText("下一步")
+            self.btn_next.setStyleSheet("QPushButton { border-radius: 5px; border: 1px solid #ccc; background-color: #fff; } QPushButton:hover { background-color: #eee; }")
+
+    def next_step(self):
+        if self.current_step < len(self.steps) - 1:
+            self.current_step += 1
+            self.update_content()
+        else:
+            self.accept()
+
+    def prev_step(self):
+        if self.current_step > 0:
+            self.current_step -= 1
+            self.update_content()
+
+
 # ================= 主窗口 =================
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SCAU 论文自动化排版工具 v2.0 (GUI版)")
-        self.resize(700, 800)
+        self.setWindowTitle("SCAU 论文自动化排版工具")
+        self.resize(750, 850)
         self.input_file = None
+
+        # 组件预设（可按需扩展）
+        self.PRESETS = PRESETS
+        self._suppress_preset_sync = False
         
         # 初始化界面布局
         self.init_ui()
@@ -680,7 +874,25 @@ class MainWindow(QMainWindow):
             }
             QPushButton:hover { background-color: #F57C00; }
         """)
+
+        # === 新增：教程按钮 ===
+        self.btn_tutorial = QPushButton("📖 新手教程")
+        self.btn_tutorial.setFont(QFont("微软雅黑", 10))
+        self.btn_tutorial.setFixedWidth(120)
+        self.btn_tutorial.setStyleSheet("""
+            QPushButton {
+                background-color: #673AB7; 
+                color: white;
+                border-radius: 5px;
+                padding: 5px;
+            }
+            QPushButton:hover { background-color: #5E35B1; }
+        """)
+        self.btn_tutorial.clicked.connect(self.open_tutorial)
+
+        # 将两个按钮加入布局
         layout_mode.addWidget(self.btn_api_config)
+        layout_mode.addWidget(self.btn_tutorial)
         
         grp_mode.setLayout(layout_mode)
         main_layout.addWidget(grp_mode)
@@ -689,38 +901,89 @@ class MainWindow(QMainWindow):
         grp_comp = QGroupBox("第二步：选择组装内容")
         grp_comp.setFont(QFont("微软雅黑", 11, QFont.Weight.Bold))
         layout_comp = QVBoxLayout()
-        
-        # 动态读取 build_engine 中的注册表
+
+        # --- 4.1 预设单选按钮（使用 QButtonGroup 管理） ---
+        preset_layout = QHBoxLayout()
+        self.preset_group = QButtonGroup(self)
+
+        self.rb_preset_thesis = QRadioButton("毕业论文")
+        self.rb_preset_paper = QRadioButton("小论文")
+        self.rb_preset_report = QRadioButton("实验报告")
+        self.rb_preset_custom = QRadioButton("自定义")
+
+        self._preset_map = {
+            self.rb_preset_thesis: "thesis",
+            self.rb_preset_paper: "paper",
+            self.rb_preset_report: "report",
+            self.rb_preset_custom: "custom",
+        }
+
+        for rb in [
+            self.rb_preset_thesis,
+            self.rb_preset_paper,
+            self.rb_preset_report,
+            self.rb_preset_custom,
+        ]:
+            rb.setFont(QFont("微软雅黑", 10))
+            preset_layout.addWidget(rb)
+            self.preset_group.addButton(rb)
+
+        # 默认选中毕业论文
+        self.rb_preset_thesis.setChecked(True)
+        # 只在“被选中”时处理（避免一次切换触发两次）
+        self.preset_group.buttonToggled.connect(self.on_preset_toggled)
+
+        layout_comp.addLayout(preset_layout)
+
+        # 分割线
+        line = QLabel()
+        line.setFixedHeight(1)
+        line.setStyleSheet("background-color: #ddd;")
+        layout_comp.addWidget(line)
+
+        # --- 4.2 具体组件复选框 ---
         self.checks = {}
-        # 强制定义一个好看的显示顺序
-        display_order = ["cover", "originality", "abs_cn", "abs_en",  "symbols","toc", "body"]
-        
-        # 网格布局：每行放3个
+        registry = build_engine.COMPONENT_REGISTRY
+
+        # 定义显示顺序：cover_exp 紧挨 cover，整体 8 个一屏更紧凑
+        display_order = [
+            "cover",
+            "cover_exp",
+            "originality",
+            "abs_cn",
+            "abs_en",
+            "symbols",
+            "toc",
+            "body",
+        ]
+
         row_layout = QHBoxLayout()
         count = 0
-        
         for key in display_order:
-            if key in build_engine.COMPONENT_REGISTRY:
-                item = build_engine.COMPONENT_REGISTRY[key]
-                cb = QCheckBox(item['desc']) # 显示中文描述
-                cb.setChecked(True)          # 默认全选
-                cb.setFont(QFont("微软雅黑", 10))
-                self.checks[key] = cb
-                
-                row_layout.addWidget(cb)
-                count += 1
-                
-                # 每3个换一行
-                if count % 3 == 0:
-                    layout_comp.addLayout(row_layout)
-                    row_layout = QHBoxLayout()
-        
-        # 把最后一行没满的加上去
-        if count % 3 != 0:
+            if key not in registry:
+                continue
+            item = registry[key]
+            cb = QCheckBox(item["desc"])
+            cb.setFont(QFont("微软雅黑", 10))
+            cb.stateChanged.connect(self.on_checkbox_changed)
+            self.checks[key] = cb
+
+            row_layout.addWidget(cb)
+            count += 1
+
+            # 每 4 个换一行
+            if count % 4 == 0:
+                layout_comp.addLayout(row_layout)
+                row_layout = QHBoxLayout()
+
+        if count % 4 != 0:
             layout_comp.addLayout(row_layout)
 
         grp_comp.setLayout(layout_comp)
         main_layout.addWidget(grp_comp)
+
+        # 初始化复选框状态（应用默认预设）
+        self.apply_preset("thesis")
 
         # 5. 开始按钮
         self.btn_start = QPushButton("开始排版")
@@ -754,11 +1017,64 @@ class MainWindow(QMainWindow):
         """)
         main_layout.addWidget(self.txt_log)
 
+    # ================= 预设/复选框联动逻辑 =================
+
+    def on_preset_toggled(self, button, checked):
+        """预设改变 -> 更新复选框"""
+        if not checked:
+            return
+        if self._suppress_preset_sync:
+            return
+
+        preset = self._preset_map.get(button)
+        if not preset or preset == "custom":
+            return
+
+        self.apply_preset(preset)
+
+    def apply_preset(self, preset_name):
+        """应用预设：勾选对应组件"""
+        target_keys = set(self.PRESETS.get(preset_name, []))
+        for cb in self.checks.values():
+            cb.blockSignals(True)
+        try:
+            for key, cb in self.checks.items():
+                cb.setChecked(key in target_keys)
+        finally:
+            for cb in self.checks.values():
+                cb.blockSignals(False)
+
+    def on_checkbox_changed(self, _state):
+        """复选框改变 -> 更新预设状态（匹配则切回预设，否则为自定义）"""
+        current_selection = {k for k, cb in self.checks.items() if cb.isChecked()}
+
+        matched = None
+        if current_selection == set(self.PRESETS.get("thesis", [])):
+            matched = self.rb_preset_thesis
+        elif current_selection == set(self.PRESETS.get("paper", [])):
+            matched = self.rb_preset_paper
+        elif current_selection == set(self.PRESETS.get("report", [])):
+            matched = self.rb_preset_report
+
+        self._suppress_preset_sync = True
+        try:
+            if matched is not None:
+                matched.setChecked(True)
+            else:
+                self.rb_preset_custom.setChecked(True)
+        finally:
+            self._suppress_preset_sync = False
+
     def open_api_config(self):
         """打开 API 配置对话框"""
         dialog = ApiConfigDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.log("API 配置已更新")
+
+    def open_tutorial(self):
+        """打开图片教程窗口"""
+        dialog = TutorialDialog(self)
+        dialog.exec()
     
     def on_file_loaded(self, path):
         self.input_file = path
