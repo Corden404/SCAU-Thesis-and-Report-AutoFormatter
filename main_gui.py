@@ -9,11 +9,163 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QGroupBox, QCheckBox, QRadioButton, QMessageBox,
                              QDialog, QFileDialog, QComboBox, QLineEdit, QFormLayout)
 from PyQt6.QtWidgets import QButtonGroup
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QUrl
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QUrl, QSettings
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QFont, QDesktopServices, QPixmap
 import json
 import urllib.request
 import urllib.error
+
+
+def _global_stylesheet(theme: str) -> str:
+    """全局主题样式（尽量不覆盖各控件的定制按钮色）。"""
+    theme = (theme or "light").lower()
+    if theme == "dark":
+        return """
+            QMainWindow, QDialog {
+                background-color: #121212;
+                color: #EAEAEA;
+            }
+            QWidget {
+                background-color: #121212;
+                color: #EAEAEA;
+            }
+            QGroupBox {
+                border: 1px solid #2A2A2A;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding: 10px;
+                background-color: #161616;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 6px;
+                color: #EAEAEA;
+            }
+            QLabel {
+                color: #EAEAEA;
+            }
+            QLineEdit, QComboBox, QTextEdit {
+                background-color: #1E1E1E;
+                color: #EAEAEA;
+                border: 1px solid #303030;
+                border-radius: 6px;
+                padding: 6px;
+                selection-background-color: #2D6CDF;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 22px;
+            }
+            QPushButton {
+                border: 1px solid #3A3A3A;
+                border-radius: 6px;
+                padding: 6px 10px;
+                background-color: #1E1E1E;
+                color: #EAEAEA;
+            }
+            QPushButton:hover {
+                background-color: #262626;
+            }
+            QPushButton:disabled {
+                color: #9A9A9A;
+                background-color: #1A1A1A;
+            }
+            QRadioButton, QCheckBox {
+                color: #EAEAEA;
+            }
+
+            /* Radio 选中态：绿色实心圆，便于识别 */
+            QRadioButton::indicator {
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                border: 2px solid #777;
+                background-color: transparent;
+            }
+            QRadioButton::indicator:checked {
+                border: 2px solid #4CAF50;
+                background-color: #4CAF50;
+            }
+            QRadioButton::indicator:unchecked {
+                border: 2px solid #777;
+                background-color: transparent;
+            }
+        """
+
+    # light
+    return """
+        QMainWindow, QDialog {
+            background-color: #FAFAFA;
+            color: #222;
+        }
+        QWidget {
+            background-color: #FAFAFA;
+            color: #222;
+        }
+        QGroupBox {
+            border: 1px solid #E0E0E0;
+            border-radius: 8px;
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #FFFFFF;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            padding: 0 6px;
+            color: #222;
+        }
+        QLabel {
+            color: #222;
+        }
+        QLineEdit, QComboBox, QTextEdit {
+            background-color: #FFFFFF;
+            color: #222;
+            border: 1px solid #D0D0D0;
+            border-radius: 6px;
+            padding: 6px;
+            selection-background-color: #2D6CDF;
+        }
+        QComboBox::drop-down {
+            border: none;
+            width: 22px;
+        }
+        QPushButton {
+            border: 1px solid #CFCFCF;
+            border-radius: 6px;
+            padding: 6px 10px;
+            background-color: #FFFFFF;
+            color: #222;
+        }
+        QPushButton:hover {
+            background-color: #F3F3F3;
+        }
+        QPushButton:disabled {
+            color: #9A9A9A;
+            background-color: #EFEFEF;
+        }
+        QRadioButton, QCheckBox {
+            color: #222;
+        }
+
+        /* Radio 选中态：绿色实心圆，便于识别 */
+        QRadioButton::indicator {
+            width: 14px;
+            height: 14px;
+            border-radius: 7px;
+            border: 2px solid #999;
+            background-color: transparent;
+        }
+        QRadioButton::indicator:checked {
+            border: 2px solid #4CAF50;
+            background-color: #4CAF50;
+        }
+        QRadioButton::indicator:unchecked {
+            border: 2px solid #999;
+            background-color: transparent;
+        }
+    """
 
 
 # ================= 组件预设配置 =================
@@ -647,6 +799,10 @@ class TutorialDialog(QDialog):
         self.setWindowTitle("SCAU 论文排版助手 - 新手引导")
         self.resize(950, 680) # 稍微调大一点，为了展示对比图的细节
         self.current_step = 0
+
+        # 读取主程序保存的主题（用于修正本对话框里“硬编码白色”的样式）
+        settings = QSettings("AutoFormatter", "AutoFormatter")
+        self.current_theme = (settings.value("theme", "light") or "light").lower()
         
         # === 修改核心：增加了前4个对比步骤 ===
         self.steps = [
@@ -723,7 +879,10 @@ class TutorialDialog(QDialog):
         # 1. 图片展示区
         self.lbl_image = QLabel()
         self.lbl_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_image.setStyleSheet("background-color: #f0f0f0; border: 1px solid #ddd; border-radius: 8px;")
+        if self.current_theme == "dark":
+            self.lbl_image.setStyleSheet("background-color: #1A1A1A; border: 1px solid #2A2A2A; border-radius: 8px;")
+        else:
+            self.lbl_image.setStyleSheet("background-color: #f0f0f0; border: 1px solid #ddd; border-radius: 8px;")
         # 图片区域稍微留大一点
         self.lbl_image.setMinimumSize(900, 500) 
         layout.addWidget(self.lbl_image)
@@ -797,7 +956,16 @@ class TutorialDialog(QDialog):
             self.btn_next.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; border-radius: 5px;")
         else:
             self.btn_next.setText("下一步")
-            self.btn_next.setStyleSheet("QPushButton { border-radius: 5px; border: 1px solid #ccc; background-color: #fff; } QPushButton:hover { background-color: #eee; }")
+            if self.current_theme == "dark":
+                self.btn_next.setStyleSheet(
+                    "QPushButton { border-radius: 5px; border: 1px solid #3A3A3A; background-color: #1E1E1E; color: #EAEAEA; } "
+                    "QPushButton:hover { background-color: #262626; }"
+                )
+            else:
+                self.btn_next.setStyleSheet(
+                    "QPushButton { border-radius: 5px; border: 1px solid #ccc; background-color: #fff; } "
+                    "QPushButton:hover { background-color: #eee; }"
+                )
 
     def next_step(self):
         if self.current_step < len(self.steps) - 1:
@@ -820,12 +988,19 @@ class MainWindow(QMainWindow):
         self.resize(750, 850)
         self.input_file = None
 
+        # 主题设置（持久化）
+        self.settings = QSettings("AutoFormatter", "AutoFormatter")
+        self.current_theme = (self.settings.value("theme", "light") or "light").lower()
+
         # 组件预设（可按需扩展）
         self.PRESETS = PRESETS
         self._suppress_preset_sync = False
         
         # 初始化界面布局
         self.init_ui()
+
+        # 应用主题（放在 init_ui 后，确保控件已创建）
+        self.apply_theme(self.current_theme)
 
     def init_ui(self):
         central_widget = QWidget()
@@ -842,7 +1017,7 @@ class MainWindow(QMainWindow):
 
         # 2. 文件路径显示
         self.lbl_path = QLabel("当前未选择文件")
-        self.lbl_path.setStyleSheet("color: #666; font-size: 13px;")
+        self.lbl_path.setStyleSheet("font-size: 13px;")
         self.lbl_path.setWordWrap(True)
         main_layout.addWidget(self.lbl_path)
 
@@ -859,6 +1034,19 @@ class MainWindow(QMainWindow):
         
         layout_mode.addWidget(self.rb_web)
         layout_mode.addWidget(self.rb_api)
+
+        layout_mode.addStretch(1)
+
+        # 主题切换
+        lbl_theme = QLabel("主题:")
+        lbl_theme.setFont(QFont("微软雅黑", 10))
+        self.combo_theme = QComboBox()
+        self.combo_theme.setFont(QFont("微软雅黑", 10))
+        self.combo_theme.addItems(["浅色", "深色"])
+        self.combo_theme.setFixedWidth(90)
+        self.combo_theme.currentTextChanged.connect(self.on_theme_changed)
+        layout_mode.addWidget(lbl_theme)
+        layout_mode.addWidget(self.combo_theme)
         
         # API 配置按钮
         self.btn_api_config = QPushButton("⚙️ API 配置")
@@ -936,10 +1124,9 @@ class MainWindow(QMainWindow):
         layout_comp.addLayout(preset_layout)
 
         # 分割线
-        line = QLabel()
-        line.setFixedHeight(1)
-        line.setStyleSheet("background-color: #ddd;")
-        layout_comp.addWidget(line)
+        self.line_sep = QLabel()
+        self.line_sep.setFixedHeight(1)
+        layout_comp.addWidget(self.line_sep)
 
         # --- 4.2 具体组件复选框 ---
         self.checks = {}
@@ -1006,16 +1193,15 @@ class MainWindow(QMainWindow):
         self.txt_log.setReadOnly(True)
         self.txt_log.setPlaceholderText("运行日志将显示在这里...")
         self.txt_log.setFont(QFont("Consolas", 10))
-        self.txt_log.setStyleSheet("""
-            QTextEdit {
-                background-color: #263238; 
-                color: #80CBC4; 
-                font-family: Consolas, monospace;
-                border-radius: 5px;
-                padding: 5px;
-            }
-        """)
+        # 样式由主题统一控制
         main_layout.addWidget(self.txt_log)
+
+        # 初始化主题下拉框显示
+        self.combo_theme.blockSignals(True)
+        try:
+            self.combo_theme.setCurrentText("深色" if self.current_theme == "dark" else "浅色")
+        finally:
+            self.combo_theme.blockSignals(False)
 
     # ================= 预设/复选框联动逻辑 =================
 
@@ -1075,19 +1261,78 @@ class MainWindow(QMainWindow):
         """打开图片教程窗口"""
         dialog = TutorialDialog(self)
         dialog.exec()
+
+    # ================= 主题切换 =================
+
+    def on_theme_changed(self, text: str):
+        theme = "dark" if (text or "").strip() == "深色" else "light"
+        self.apply_theme(theme)
+        self.settings.setValue("theme", theme)
+
+    def apply_theme(self, theme: str):
+        theme = (theme or "light").lower()
+        self.current_theme = theme
+
+        # 应用全局样式（对话框也会继承）
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(_global_stylesheet(theme))
+
+        # 单独控制：日志框（原本固定为深色，这里做主题适配）
+        if theme == "dark":
+            self.txt_log.setStyleSheet(
+                "QTextEdit { background-color: #0F1720; color: #80CBC4; border-radius: 6px; padding: 6px; border: 1px solid #263238; }"
+            )
+        else:
+            self.txt_log.setStyleSheet(
+                "QTextEdit { background-color: #FFFFFF; color: #1F2937; border-radius: 6px; padding: 6px; border: 1px solid #D0D0D0; }"
+            )
+
+        # 路径标签/分割线/拖拽区随主题刷新
+        self.lbl_path.setStyleSheet(
+            "font-size: 13px; color: #BDBDBD;" if theme == "dark" else "font-size: 13px; color: #666;"
+        )
+        if hasattr(self, "line_sep") and self.line_sep is not None:
+            self.line_sep.setStyleSheet(
+                "background-color: #2A2A2A;" if theme == "dark" else "background-color: #DDD;"
+            )
+
+        self.update_drop_area_style()
+
+    def update_drop_area_style(self):
+        """根据主题 + 是否已加载文件，刷新拖拽区样式。"""
+        theme = self.current_theme
+        loaded = bool(self.input_file)
+
+        if loaded:
+            # 已加载文件：保持绿色提示，但深色主题下略压暗
+            if theme == "dark":
+                self.drop_area.setStyleSheet(
+                    "QLabel { border: 3px solid #4CAF50; border-radius: 15px; background-color: #0F2A18; color: #9FE6B3; }"
+                )
+            else:
+                self.drop_area.setStyleSheet(
+                    "QLabel { border: 3px solid #4CAF50; border-radius: 15px; background-color: #E8F5E9; color: #2E7D32; }"
+                )
+            return
+
+        # 未加载文件：默认虚线拖拽提示
+        if theme == "dark":
+            self.drop_area.setStyleSheet(
+                "QLabel { border: 3px dashed #555; border-radius: 15px; background-color: #1A1A1A; color: #BDBDBD; }"
+                "QLabel:hover { border-color: #4CAF50; background-color: #0F2A18; color: #9FE6B3; }"
+            )
+        else:
+            self.drop_area.setStyleSheet(
+                "QLabel { border: 3px dashed #AAA; border-radius: 15px; background-color: #F0F0F0; color: #555; }"
+                "QLabel:hover { border-color: #4CAF50; background-color: #E8F5E9; color: #2E7D32; }"
+            )
     
     def on_file_loaded(self, path):
         self.input_file = path
         self.lbl_path.setText(f"✅ 已加载: {path}")
         self.drop_area.setText("📄\n文件已就绪")
-        self.drop_area.setStyleSheet("""
-            QLabel {
-                border: 3px solid #4CAF50;
-                border-radius: 15px;
-                background-color: #e8f5e9;
-                color: #2E7D32;
-            }
-        """)
+        self.update_drop_area_style()
         self.log(f"文件已加载: {path}")
 
     def log(self, text):
