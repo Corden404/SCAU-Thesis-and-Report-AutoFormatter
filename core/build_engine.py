@@ -11,6 +11,7 @@ class Config:
     ASSETS_DIR = os.path.join(BASE_DIR, "assets")
     MD_DIR = os.path.join(BASE_DIR, "md")
     TEMP_DIR = os.path.join(BASE_DIR, "temp")
+    OUTPUTS_DIR = os.path.join(BASE_DIR, "outputs")
     REF_DOC = os.path.join(BASE_DIR, "reference.docx")
     OUTPUT_DOCX = os.path.join(BASE_DIR, "Output_Document.docx")
 
@@ -25,6 +26,9 @@ class Config:
     WD_LINE_WIDTH_150PT = 12
     WD_LINE_WIDTH_075PT = 6
     WD_COLOR_BLACK = 0
+
+    # Word 导出常量
+    WD_EXPORT_FORMAT_PDF = 17
 
 # 组件注册表：定义所有可用的模块
 # type: 'static' (Word文件) | 'md' (Markdown文件)
@@ -48,6 +52,8 @@ class DocumentBuilder:
     def _ensure_dirs(self):
         if not os.path.exists(Config.TEMP_DIR):
             os.makedirs(Config.TEMP_DIR)
+        if not os.path.exists(Config.OUTPUTS_DIR):
+            os.makedirs(Config.OUTPUTS_DIR)
 
     def _pandoc_convert(self, input_md, output_docx):
         """调用 Pandoc 将 MD 转为 Docx"""
@@ -125,8 +131,18 @@ class DocumentBuilder:
             for toc in doc.TablesOfContents:
                 toc.Update()
 
-    def build(self, component_keys, output_filename="Final_Output.docx", component_registry=None):
-        """主入口：根据传入的 keys 列表组装文档（支持线程内调用）"""
+    def build(
+        self,
+        component_keys,
+        output_filename="Final_Output.docx",
+        output_pdf_filename=None,
+        component_registry=None,
+    ):
+        """主入口：根据传入的 keys 列表组装文档（支持线程内调用）
+
+        output_filename: 目标 docx 路径（可为绝对路径）
+        output_pdf_filename: 可选，目标 pdf 路径（可为绝对路径）
+        """
 
         # 1. 初始化线程 COM 环境 (必须！)
         pythoncom.CoInitialize()
@@ -222,6 +238,21 @@ class DocumentBuilder:
                     abs_output_path = os.path.join(Config.BASE_DIR, abs_output_path)
 
                 new_doc.SaveAs(abs_output_path)
+
+                # 可选：导出 PDF
+                if output_pdf_filename:
+                    abs_pdf_path = output_pdf_filename
+                    if not os.path.isabs(abs_pdf_path):
+                        abs_pdf_path = os.path.join(Config.BASE_DIR, abs_pdf_path)
+                    try:
+                        new_doc.ExportAsFixedFormat(
+                            abs_pdf_path,
+                            ExportFormat=Config.WD_EXPORT_FORMAT_PDF,
+                        )
+                        print(f"[Success] PDF 导出完成: {abs_pdf_path}")
+                    except Exception as e:
+                        print(f"[Warning] PDF 导出失败: {e}")
+
                 new_doc.Close()
                 new_doc = None
                 print(f"\n[Success] 文档生成完毕: {abs_output_path}")

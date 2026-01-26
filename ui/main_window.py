@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QFileDialog,
     QComboBox,
+    QLineEdit,
 )
 from PyQt6.QtWidgets import QButtonGroup
 from PyQt6.QtGui import QFont
@@ -215,7 +216,69 @@ class MainWindow(QMainWindow):
         # 初始化复选框状态（应用默认预设）
         self.apply_preset("thesis")
 
-        # 5. 开始按钮
+        # 5. 导出设置
+        grp_output = QGroupBox("第三步：导出设置")
+        grp_output.setFont(QFont("微软雅黑", 11, QFont.Weight.Bold))
+        layout_output = QVBoxLayout()
+
+        # 5.1 导出位置（可任意目录；留空默认 outputs）
+        row_dir = QHBoxLayout()
+        lbl_dir = QLabel("导出目录(留空默认 outputs):")
+        lbl_dir.setFont(QFont("微软雅黑", 10))
+        self.edit_output_dir = QLineEdit()
+        self.edit_output_dir.setFont(QFont("微软雅黑", 10))
+        self.edit_output_dir.setPlaceholderText("留空则默认导出到项目的 outputs 文件夹")
+        self.edit_output_dir.textChanged.connect(self.update_output_preview)
+
+        self.btn_pick_output_dir = QPushButton("选择...")
+        self.btn_pick_output_dir.setFont(QFont("微软雅黑", 10))
+        self.btn_pick_output_dir.setFixedWidth(80)
+        self.btn_pick_output_dir.clicked.connect(self.pick_output_dir)
+
+        row_dir.addWidget(lbl_dir)
+        row_dir.addWidget(self.edit_output_dir, 1)
+        row_dir.addWidget(self.btn_pick_output_dir)
+        layout_output.addLayout(row_dir)
+
+        # 5.2 命名
+        row_name = QHBoxLayout()
+        lbl_name = QLabel("导出文件名:")
+        lbl_name.setFont(QFont("微软雅黑", 10))
+        self.edit_output_name = QLineEdit()
+        self.edit_output_name.setFont(QFont("微软雅黑", 10))
+        self.edit_output_name.setPlaceholderText("例如：我的论文")
+        self.edit_output_name.textChanged.connect(self.update_output_preview)
+        row_name.addWidget(lbl_name)
+        row_name.addWidget(self.edit_output_name, 1)
+        layout_output.addLayout(row_name)
+
+        # 5.3 格式（可同时选择）
+        row_fmt = QHBoxLayout()
+        lbl_fmt = QLabel("导出格式:")
+        lbl_fmt.setFont(QFont("微软雅黑", 10))
+        self.cb_export_docx = QCheckBox("DOCX")
+        self.cb_export_pdf = QCheckBox("PDF")
+        self.cb_export_docx.setFont(QFont("微软雅黑", 10))
+        self.cb_export_pdf.setFont(QFont("微软雅黑", 10))
+        self.cb_export_docx.setChecked(True)
+        self.cb_export_docx.stateChanged.connect(self.update_output_preview)
+        self.cb_export_pdf.stateChanged.connect(self.update_output_preview)
+        row_fmt.addWidget(lbl_fmt)
+        row_fmt.addWidget(self.cb_export_docx)
+        row_fmt.addWidget(self.cb_export_pdf)
+        row_fmt.addStretch(1)
+        layout_output.addLayout(row_fmt)
+
+        # 5.4 预览
+        self.lbl_output_preview = QLabel("")
+        self.lbl_output_preview.setWordWrap(True)
+        self.lbl_output_preview.setFont(QFont("Consolas", 9))
+        layout_output.addWidget(self.lbl_output_preview)
+
+        grp_output.setLayout(layout_output)
+        main_layout.addWidget(grp_output)
+
+        # 6. 开始按钮
         self.btn_start = QPushButton("开始排版")
         self.btn_start.setFixedHeight(50)
         self.btn_start.setFont(QFont("微软雅黑", 13, QFont.Weight.Bold))
@@ -227,7 +290,7 @@ class MainWindow(QMainWindow):
         self.btn_start.clicked.connect(self.start_process)
         main_layout.addWidget(self.btn_start)
 
-        # 6. 日志输出框
+        # 7. 日志输出框
         self.txt_log = QTextEdit()
         self.txt_log.setReadOnly(True)
         self.txt_log.setPlaceholderText("运行日志将显示在这里...")
@@ -241,6 +304,85 @@ class MainWindow(QMainWindow):
             self.combo_theme.setCurrentText("深色" if self.current_theme == "dark" else "浅色")
         finally:
             self.combo_theme.blockSignals(False)
+
+        # 初始化导出预览
+        self.update_output_preview()
+
+    # ================= 导出设置 =================
+
+    def get_outputs_root(self) -> str:
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(root_dir, "outputs")
+
+    def sanitize_filename(self, name: str) -> str:
+        invalid = '<>:/\\|?*"'
+        cleaned = "".join(("_" if ch in invalid else ch) for ch in (name or ""))
+        cleaned = cleaned.strip().strip(".")
+        return cleaned
+
+    def build_output_paths(self):
+        outputs_root = self.get_outputs_root()
+        name_widget = getattr(self, "edit_output_name", None)
+        name_text = name_widget.text() if name_widget is not None else ""
+
+        dir_widget = getattr(self, "edit_output_dir", None)
+        dir_text = dir_widget.text() if dir_widget is not None else ""
+        output_dir = (dir_text or "").strip()
+        if not output_dir:
+            output_dir = outputs_root
+        # 允许输入相对路径：相对路径默认放到 outputs 下面
+        if not os.path.isabs(output_dir):
+            output_dir = os.path.abspath(os.path.join(outputs_root, output_dir))
+
+        base = self.sanitize_filename((name_text or "").strip())
+
+        if not base:
+            if self.input_file:
+                base = self.sanitize_filename(os.path.splitext(os.path.basename(self.input_file))[0])
+            else:
+                base = "Output"
+
+        want_docx = bool(getattr(self, "cb_export_docx", None) and self.cb_export_docx.isChecked())
+        want_pdf = bool(getattr(self, "cb_export_pdf", None) and self.cb_export_pdf.isChecked())
+
+        docx_path = os.path.join(output_dir, f"{base}.docx") if want_docx else None
+        pdf_path = os.path.join(output_dir, f"{base}.pdf") if want_pdf else None
+        return outputs_root, output_dir, base, docx_path, pdf_path
+
+    def update_output_preview(self):
+        if not hasattr(self, "lbl_output_preview"):
+            return
+        _outputs_root, output_dir, _base, docx_path, pdf_path = self.build_output_paths()
+        show_dir = output_dir
+
+        lines = [f"输出目录: {show_dir}"]
+        if docx_path:
+            lines.append(f"- {docx_path}")
+        if pdf_path:
+            lines.append(f"- {pdf_path}")
+        if not docx_path and not pdf_path:
+            lines.append("(请至少选择一种导出格式)")
+
+        self.lbl_output_preview.setText("\n".join(lines))
+
+    def pick_output_dir(self):
+        """选择导出目录；留空则默认 outputs。"""
+        outputs_root = self.get_outputs_root()
+        os.makedirs(outputs_root, exist_ok=True)
+
+        current_dir = (getattr(self, "edit_output_dir", None).text() or "").strip() if hasattr(self, "edit_output_dir") else ""
+        start_dir = current_dir if current_dir and os.path.isdir(current_dir) else outputs_root
+
+        chosen = QFileDialog.getExistingDirectory(
+            self,
+            "选择导出目录",
+            start_dir,
+        )
+        if not chosen:
+            return
+
+        self.edit_output_dir.setText(chosen)
+        self.update_output_preview()
 
     # ================= 预设/复选框联动逻辑 =================
 
@@ -374,6 +516,13 @@ class MainWindow(QMainWindow):
         self.update_drop_area_style()
         self.log(f"文件已加载: {path}")
 
+        # 默认导出名 = 输入文件名（去扩展名）
+        try:
+            self.edit_output_name.setText(os.path.splitext(os.path.basename(path))[0])
+        except Exception:
+            pass
+        self.update_output_preview()
+
     def log(self, text):
         self.txt_log.append(text)
         # 自动滚动到底部
@@ -416,6 +565,33 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "提示", "请至少勾选一个组件！")
             return
 
+        # === 导出设置校验 ===
+        _outputs_root, output_dir, base, docx_path, pdf_path = self.build_output_paths()
+        if not docx_path and not pdf_path:
+            QMessageBox.warning(self, "提示", "请至少选择一种导出格式（DOCX / PDF）！")
+            return
+        if not (base or "").strip():
+            QMessageBox.warning(self, "提示", "导出文件名不能为空！")
+            return
+
+        # 目录可写性/可创建性检查
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+        except Exception as e:
+            QMessageBox.critical(self, "无法创建导出目录", f"导出目录不可用：\n{output_dir}\n\n原因：{e}")
+            return
+
+        # 输出占用检测（尽量提前给用户反馈）
+        for target in [p for p in [docx_path, pdf_path] if p]:
+            if self.is_file_locked(target):
+                QMessageBox.critical(
+                    self,
+                    "无法写入输出文件",
+                    f"检测到输出文件正在被使用：\n{target}\n\n"
+                    "请先关闭 Word 或其他占用该文件的程序，然后再试。",
+                )
+                return
+
         # 锁定按钮
         self.btn_start.setEnabled(False)
         self.btn_start.setText("正在处理中...")
@@ -436,7 +612,16 @@ class MainWindow(QMainWindow):
                 return
 
         # 启动线程
-        self.worker = WorkerThread(self.input_file, mode, selected_keys, api_config)
+        self.worker = WorkerThread(
+            self.input_file,
+            mode,
+            selected_keys,
+            api_config,
+            output_dir=output_dir,
+            output_basename=base,
+            export_docx=bool(docx_path),
+            export_pdf=bool(pdf_path),
+        )
         self.worker.log_signal.connect(self.log)
         self.worker.finish_signal.connect(self.on_finish)
         self.worker.ask_user_signal.connect(self.on_ask_user)
@@ -469,6 +654,13 @@ class MainWindow(QMainWindow):
         self.btn_start.setEnabled(True)
         self.btn_start.setText("开始排版")
         if success:
-            QMessageBox.information(self, "成功", "文档生成成功！\n请查看项目目录下的 Output_xxxx.docx")
+            _outputs_root, output_dir, _base, docx_path, pdf_path = self.build_output_paths()
+            show_dir = output_dir
+            tips = ["文档生成成功！", f"输出目录：{show_dir}"]
+            if docx_path:
+                tips.append(f"- {os.path.basename(docx_path)}")
+            if pdf_path:
+                tips.append(f"- {os.path.basename(pdf_path)}")
+            QMessageBox.information(self, "成功", "\n".join(tips))
         else:
             QMessageBox.warning(self, "失败", "排版过程中出现错误，请查看下方日志。")

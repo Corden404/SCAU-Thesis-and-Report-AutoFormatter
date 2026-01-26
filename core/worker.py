@@ -20,7 +20,17 @@ class WorkerThread(QThread):
     ask_save_signal = pyqtSignal(str)  # 请求保存路径信号
     error_signal = pyqtSignal(str, str)  # 错误提示弹窗（标题, 内容）
 
-    def __init__(self, input_path, mode, components, api_config=None):
+    def __init__(
+        self,
+        input_path,
+        mode,
+        components,
+        api_config=None,
+        output_dir: str | None = None,
+        output_basename: str | None = None,
+        export_docx: bool = True,
+        export_pdf: bool = False,
+    ):
         super().__init__()
         self.input_path = input_path
         self.mode = mode  # 'api' 或 'web'
@@ -30,6 +40,31 @@ class WorkerThread(QThread):
         self.user_response = None
         self.save_path = None
         self.temp_md_dir = None  # 临时目录路径
+
+        # 导出设置
+        self.output_dir = (output_dir or "").strip() or None
+        self.output_basename = (output_basename or "").strip() or None
+        self.export_docx = bool(export_docx)
+        self.export_pdf = bool(export_pdf)
+
+    def _sanitize_filename(self, name: str) -> str:
+        """Windows 文件名清理：去掉不允许字符"""
+        invalid = '<>:/\\|?*"'
+        cleaned = "".join(("_" if ch in invalid else ch) for ch in (name or ""))
+        cleaned = cleaned.strip().strip(".")
+        return cleaned
+
+    def _is_file_locked(self, filepath: str) -> bool:
+        if not filepath or not os.path.exists(filepath):
+            return False
+        try:
+            with open(filepath, "a"):
+                pass
+            return False
+        except PermissionError:
+            return True
+        except Exception:
+            return False
 
     def log(self, text):
         self.log_signal.emit(text)
@@ -115,41 +150,68 @@ class WorkerThread(QThread):
                         if filename:
                             local_registry[key]["path"] = os.path.join(self.temp_md_dir, filename)
 
-                temp_output = os.path.join(self.temp_md_dir, "temp_output.docx")
-
                 try:
                     # 调用构建器，先输出到临时文件
-                    builder.build(self.components, temp_output, component_registry=local_registry)
-                    self.log("✅ Word 文档组装完成！")
-
-                    # 5. 现在让用户选择最终保存位置
-                    default_name = f"Output_{int(time.time())}.docx"
-                    self.ask_save_signal.emit(default_name)
-
-                    while self.save_path is None:
-                        time.sleep(0.2)
-
-                    if not self.save_path:
-                        self.log("❌ 用户取消保存，流程终止。")
+                    if not self.export_docx and not self.export_pdf:
+                        self.log("❌ 未选择任何导出格式（docx/pdf），流程终止。")
                         self.finish_signal.emit(False)
                         return
 
-                    # 6. 复制临时文件到用户选择的位置
-                    self.log(f"📦 正在保存文档到: {os.path.basename(self.save_path)}...")
-                    try:
-                        shutil.copy2(temp_output, self.save_path)
-                    except PermissionError:
-                        self.log("❌ 保存失败：目标文件可能正在被占用（常见于 Word 已打开同名文档）。")
-                        self.error_signal.emit(
-                            "保存失败（文件被占用）",
-                            "检测到目标 .docx 可能正在被 Word 占用。\n\n"
-                            "请你先手动关闭已打开的 Word 文档（不要让程序代替你关闭，以免丢失未保存内容），\n"
-                            "然后重新点击开始排版并选择保存路径。",
-                        )
-                        self.finish_signal.emit(False)
-                        return
+                    # 5. 计算输出路径（可自定义目录；留空默认 outputs）
+                    outputs_root = build_engine.Config.OUTPUTS_DIR
+                    os.makedirs(outputs_root, exist_ok=True)
 
-                    self.log(f"🎉 全部完成！\n输出文件: {os.path.abspath(self.save_path)}")
+                    final_dir = (self.output_dir or "").strip()
+                    if not final_dir:
+                        final_dir = outputs_root
+                    # 相对路径默认放到 outputs 下
+                    if not os.path.isabs(final_dir):
+                        final_dir = os.path.abspath(os.path.join(outputs_root, final_dir))
+                    os.makedirs(final_dir, exist_ok=True)
+
+                    base = self.output_basename
+                    if not base:
+                        base = os.path.splitext(os.path.basename(self.input_path))[0]
+                    base = self._sanitize_filename(base) or f"Output_{int(time.time())}"
+
+                    final_docx = os.path.join(final_dir, f"{base}.docx") if self.export_docx else None
+                    final_pdf = os.path.join(final_dir, f"{base}.pdf") if self.export_pdf else None
+
+                    # 输出占用检测
+                    for target in [p for p in [final_docx, final_pdf] if p]:
+                        if self._is_file_locked(target):
+                            self.log(f"❌ 输出失败：目标文件被占用: {os.path.basename(target)}")
+                            self.error_signal.emit(
+                                "输出失败（文件被占用）",
+                                "检测到目标文件可能正在被 Word/其他程序占用：\n\n"
+                                f"{target}\n\n"
+                                "请先关闭占用程序后重试。",
+                            )
+                            self.finish_signal.emit(False)
+                            return
+
+                    # 6. 构建：docx 可能是最终文件，也可能只是 pdf 的临时中间产物
+                    docx_build_path = final_docx or os.path.join(self.temp_md_dir, f"{base}_temp.docx")
+                    self.log("🔧 正在生成 Word 文档...")
+                    builder.build(
+                        self.components,
+                        docx_build_path,
+                        output_pdf_filename=final_pdf,
+                        component_registry=local_registry,
+                    )
+
+                    # 兼容：如果仅导出 pdf，不保留中间 docx
+                    if not self.export_docx:
+                        try:
+                            if os.path.exists(docx_build_path):
+                                os.remove(docx_build_path)
+                        except Exception:
+                            pass
+
+                    outputs = [p for p in [final_docx, final_pdf] if p]
+                    self.log("✅ 导出完成：")
+                    for p in outputs:
+                        self.log(f"- {os.path.abspath(p)}")
                     self.finish_signal.emit(True)
 
                 finally:
