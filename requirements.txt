@@ -1,0 +1,5 @@
+PyQt6
+pyperclip
+openai
+pywin32
+python-docx
