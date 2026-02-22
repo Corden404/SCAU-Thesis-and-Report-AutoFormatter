@@ -16,8 +16,10 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QGroupBox,
     QTextEdit,
+    QWidget,
+    QGraphicsOpacityEffect,
 )
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtCore import Qt, QUrl, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QFont, QDesktopServices, QPixmap
 
 from core import config_manager
@@ -422,7 +424,6 @@ class TutorialDialog(QDialog):
         self.update_content()
 
     def init_ui(self):
-        # 保持之前的 UI 代码不变
         layout = QVBoxLayout(self)
 
         # 1. 图片展示区
@@ -438,9 +439,18 @@ class TutorialDialog(QDialog):
             )
         # 图片区域稍微留大一点
         self.lbl_image.setMinimumSize(900, 500)
+
+        # 为图片区域设置淡入淡出动画效果
+        self._img_opacity = QGraphicsOpacityEffect(self.lbl_image)
+        self._img_opacity.setOpacity(1.0)
+        self.lbl_image.setGraphicsEffect(self._img_opacity)
+        self._img_anim = QPropertyAnimation(self._img_opacity, b"opacity")
+        self._img_anim.setDuration(300)
+        self._img_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+
         layout.addWidget(self.lbl_image)
 
-        # 2. 文字说明区
+        # 2. 文字说明区（同样加淡入淡出效果）
         text_container = QVBoxLayout()
         self.lbl_title = QLabel()
         self.lbl_title.setFont(QFont("微软雅黑", 14, QFont.Weight.Bold))
@@ -450,11 +460,37 @@ class TutorialDialog(QDialog):
         self.lbl_text.setFont(QFont("微软雅黑", 11))
         self.lbl_text.setWordWrap(True)
 
-        text_container.addWidget(self.lbl_title)
-        text_container.addWidget(self.lbl_text)
+        # 文字区容器 widget，用于整体淡入淡出
+        self._text_widget = QWidget()
+        text_inner = QVBoxLayout(self._text_widget)
+        text_inner.setContentsMargins(0, 0, 0, 0)
+        text_inner.addWidget(self.lbl_title)
+        text_inner.addWidget(self.lbl_text)
+
+        self._text_opacity = QGraphicsOpacityEffect(self._text_widget)
+        self._text_opacity.setOpacity(1.0)
+        self._text_widget.setGraphicsEffect(self._text_opacity)
+        self._text_anim = QPropertyAnimation(self._text_opacity, b"opacity")
+        self._text_anim.setDuration(300)
+        self._text_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+
+        text_container.addWidget(self._text_widget)
         layout.addLayout(text_container)
 
-        # 3. 底部按钮区
+        # 3. 步骤进度指示点
+        self._dot_layout = QHBoxLayout()
+        self._dot_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._dot_layout.setSpacing(8)
+        self._dots: list[QLabel] = []
+        for _ in self.steps:
+            dot = QLabel("●")
+            dot.setFont(QFont("Arial", 10))
+            dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._dots.append(dot)
+            self._dot_layout.addWidget(dot)
+        layout.addLayout(self._dot_layout)
+
+        # 4. 底部按钮区
         btn_layout = QHBoxLayout()
         self.btn_prev = QPushButton("上一步")
         self.btn_next = QPushButton("下一步")
@@ -499,6 +535,15 @@ class TutorialDialog(QDialog):
         else:
             self.lbl_image.setText(f"图片丢失: {data['img']}\n请确保图片在'引导'文件夹内")
 
+        # 更新步骤进度指示点
+        active_color = "#2196F3"
+        inactive_color = "#BDBDBD" if self.current_theme != "dark" else "#555555"
+        for i, dot in enumerate(self._dots):
+            if i == self.current_step:
+                dot.setStyleSheet(f"color: {active_color};")
+            else:
+                dot.setStyleSheet(f"color: {inactive_color};")
+
         # 更新按钮状态
         self.btn_prev.setEnabled(self.current_step > 0)
 
@@ -520,14 +565,40 @@ class TutorialDialog(QDialog):
                     "QPushButton:hover { background-color: #eee; }"
                 )
 
+    def _animate_transition(self, update_fn):
+        """执行淡出 -> 更新内容 -> 淡入的过渡动画。"""
+        # 淡出阶段
+        self._img_anim.stop()
+        self._text_anim.stop()
+        self._img_anim.setStartValue(1.0)
+        self._img_anim.setEndValue(0.0)
+        self._text_anim.setStartValue(1.0)
+        self._text_anim.setEndValue(0.0)
+
+        def _on_fade_out_done():
+            self._img_anim.finished.disconnect(_on_fade_out_done)
+            # 更新内容（此时画面不可见，不会闪烁）
+            update_fn()
+            # 淡入阶段
+            self._img_anim.setStartValue(0.0)
+            self._img_anim.setEndValue(1.0)
+            self._text_anim.setStartValue(0.0)
+            self._text_anim.setEndValue(1.0)
+            self._img_anim.start()
+            self._text_anim.start()
+
+        self._img_anim.finished.connect(_on_fade_out_done)
+        self._img_anim.start()
+        self._text_anim.start()
+
     def next_step(self):
         if self.current_step < len(self.steps) - 1:
             self.current_step += 1
-            self.update_content()
+            self._animate_transition(self.update_content)
         else:
             self.accept()
 
     def prev_step(self):
         if self.current_step > 0:
             self.current_step -= 1
-            self.update_content()
+            self._animate_transition(self.update_content)
