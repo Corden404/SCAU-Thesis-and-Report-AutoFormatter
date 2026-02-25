@@ -71,30 +71,29 @@
 AutoFormatter/
 │
 ├── assets/                 # 静态资源 (cover.docx, toc.docx, symbols.docx 等)
-├── 原始资源/               # 脚本当前用不到的原始资源/备份（仅归档，不参与运行流程）
-├── md/                     # 中间产物 markdown
-├── temp/                   # 临时文件
-├── 引导/                   # 新手教程图片
+├── md/                     # 中间产物 markdown (已被临时目录机制替代，作为备用)
+├── temp/                   # 临时文件目录 (运行中生成)
+├── test/                   # 测试与引导用到的参考文档
 │
 ├── core/                   # [核心逻辑层]
 │   ├── __init__.py
 │   ├── preprocess.py       # AI 交互、文本清洗、Prompt 管理
 │   ├── build_engine.py     # Pandoc + Word COM 组装与样式处理
-│   ├── config_manager.py   # API 配置/主题配置读写
+│   ├── config_manager.py   # API 配置/主题配置及首次启动状态读写
 │   └── worker.py           # 后台线程（从 GUI 中剥离）
 │
 ├── ui/                     # [界面展示层]
 │   ├── __init__.py
-│   ├── main_window.py      # 主窗口框架（只负责 UI 组装）
-│   ├── dialogs.py          # 各类弹窗（API 设置 / 教程 / 网页模式）
+│   ├── main_window.py      # 主窗口框架（只负责 UI 组装与引导接入）
+│   ├── dialogs.py          # 各类弹窗（API 设置 / 网页模式复制窗）
+│   ├── overlay_tour.py     # 沉浸式动态遮罩引导引擎 (取代了原本的静态图教程)
 │   ├── widgets.py          # 自定义控件（DropArea）
 │   └── styles.py           # 主题/样式表管理
 │
 ├── main.py                 # 程序入口（推荐运行）
-├── main_gui.py             # 兼容入口（转发到 main.py）
-├── build_reference.py      # 生成 Word 参考样式模板
+├── reference.docx          # Word 母版参考样式
 ├── prompt.txt              # AI 提示词模板
-├── api_config.json         # API 配置（运行后自动生成/更新）
+├── api_config.json         # 本地配置(运行后生成，已被 .gitignore 忽略)
 └── requirements.txt        # 依赖清单
 ```
 

@@ -568,7 +568,8 @@ class MainWindow(QMainWindow):
     def on_file_loaded(self, path):
         self.input_file = path
         self.lbl_path.setText(f"✅ 已加载: {path}")
-        self.drop_area.setText("📄\n文件已就绪")
+        filename = os.path.basename(path)
+        self.drop_area.setText(f"📄\n文件已就绪\n{filename}\n或拖入其他文档")
         self.update_drop_area_style()
         self.log(f"文件已加载: {path}")
 

@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QTextEdit,
 )
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtCore import Qt, QUrl, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QDesktopServices, QPixmap
 
 from core import config_manager
@@ -29,6 +29,72 @@ def resource_path(relative_path):
         return os.path.join(sys._MEIPASS, relative_path)
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_dir, relative_path)
+
+
+class ConnectionTesterThread(QThread):
+    finished_signal = pyqtSignal(bool, str)
+
+    def __init__(self, config, parent=None):
+        super().__init__(parent)
+        self.config = config
+
+    def run(self):
+        def _build_chat_url(base_url):
+            base = (base_url or "").rstrip("/")
+            if base.endswith("/v1"):
+                return f"{base}/chat/completions"
+            return f"{base}/v1/chat/completions"
+
+        def _simple_test_request():
+            url = _build_chat_url(self.config["base_url"])
+            payload = {
+                "model": self.config["model_name"],
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 5,
+            }
+            import json, urllib.request
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=data,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.config['api_key']}",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                resp.read()
+
+        try:
+            from openai import OpenAI
+        except Exception:
+            try:
+                _simple_test_request()
+                self.finished_signal.emit(True, "✅ API 连接测试成功！")
+                return
+            except Exception as e2:
+                self.finished_signal.emit(False, f"❌ API 连接失败：\n\n{str(e2)}")
+                return
+
+        try:
+            client = OpenAI(api_key=self.config["api_key"], base_url=self.config["base_url"])
+            client.chat.completions.create(
+                model=self.config["model_name"],
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=5,
+            )
+            self.finished_signal.emit(True, "✅ API 连接测试成功！")
+        except Exception as e:
+            if "proxies" in str(e):
+                try:
+                    _simple_test_request()
+                    self.finished_signal.emit(True, "✅ API 连接测试成功！")
+                    return
+                except Exception as e2:
+                    self.finished_signal.emit(False, f"❌ API 连接失败：\n\n{str(e2)}")
+                    return
+            self.finished_signal.emit(False, f"❌ API 连接失败：\n\n{str(e)}")
 
 
 class ApiConfigDialog(QDialog):
@@ -96,9 +162,9 @@ class ApiConfigDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
-        btn_test = QPushButton("测试连接")
-        btn_test.setFont(QFont("微软雅黑", 10))
-        btn_test.clicked.connect(self.test_connection)
+        self.btn_test = QPushButton("测试连接")
+        self.btn_test.setFont(QFont("微软雅黑", 10))
+        self.btn_test.clicked.connect(self.test_connection)
 
         btn_cancel = QPushButton("取消")
         btn_cancel.setFont(QFont("微软雅黑", 10))
@@ -109,7 +175,7 @@ class ApiConfigDialog(QDialog):
         btn_save.setDefault(True)
         btn_save.clicked.connect(self.save_config)
 
-        btn_layout.addWidget(btn_test)
+        btn_layout.addWidget(self.btn_test)
         btn_layout.addWidget(btn_cancel)
         btn_layout.addWidget(btn_save)
         layout.addLayout(btn_layout)
@@ -186,64 +252,20 @@ class ApiConfigDialog(QDialog):
             QMessageBox.warning(self, "提示", "请先输入模型名称")
             return
 
-        def _build_chat_url(base_url):
-            base = (base_url or "").rstrip("/")
-            if base.endswith("/v1"):
-                return f"{base}/chat/completions"
-            return f"{base}/v1/chat/completions"
+        self.btn_test.setEnabled(False)
+        self.btn_test.setText("正在测试...")
 
-        def _simple_test_request():
-            url = _build_chat_url(config["base_url"])
-            payload = {
-                "model": config["model_name"],
-                "messages": [{"role": "user", "content": "Hi"}],
-                "max_tokens": 5,
-            }
-            data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                url,
-                data=data,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {config['api_key']}",
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                resp.read()
+        self.tester_thread = ConnectionTesterThread(config, self)
+        self.tester_thread.finished_signal.connect(self.on_test_finished)
+        self.tester_thread.start()
 
-        try:
-            from openai import OpenAI
-        except Exception:
-            try:
-                _simple_test_request()
-                QMessageBox.information(self, "成功", "✅ API 连接测试成功！")
-                return
-            except Exception as e2:
-                QMessageBox.critical(self, "失败", f"❌ API 连接失败：\n\n{str(e2)}")
-                return
-
-        try:
-            client = OpenAI(api_key=config["api_key"], base_url=config["base_url"])
-
-            # 发送一个简单的测试请求
-            client.chat.completions.create(
-                model=config["model_name"],
-                messages=[{"role": "user", "content": "Hi"}],
-                max_tokens=5,
-            )
-
-            QMessageBox.information(self, "成功", "✅ API 连接测试成功！")
-        except Exception as e:
-            if "proxies" in str(e):
-                try:
-                    _simple_test_request()
-                    QMessageBox.information(self, "成功", "✅ API 连接测试成功！")
-                    return
-                except Exception as e2:
-                    QMessageBox.critical(self, "失败", f"❌ API 连接失败：\n\n{str(e2)}")
-                    return
-            QMessageBox.critical(self, "失败", f"❌ API 连接失败：\n\n{str(e)}")
+    def on_test_finished(self, success, message):
+        self.btn_test.setEnabled(True)
+        self.btn_test.setText("测试连接")
+        if success:
+            QMessageBox.information(self, "成功", message)
+        else:
+            QMessageBox.critical(self, "失败", message)
 
     def save_config(self):
         """保存配置"""
