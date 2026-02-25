@@ -24,8 +24,9 @@ from core import build_engine
 from core import config_manager
 from core.worker import WorkerThread
 from .widgets import DropArea
-from .dialogs import ApiConfigDialog, WebModeDialog, TutorialDialog
+from .dialogs import ApiConfigDialog, WebModeDialog
 from .styles import global_stylesheet
+from .overlay_tour import OverlayTour
 
 # ================= 组件预设配置 =================
 # Key 对应 build_engine.COMPONENT_REGISTRY 的键
@@ -76,8 +77,8 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.lbl_path)
 
         # 3. 模式选择 (Radio Buttons)
-        grp_mode = QGroupBox("第一步：选择处理模式")
-        grp_mode.setFont(QFont("微软雅黑", 11, QFont.Weight.Bold))
+        self.grp_mode = QGroupBox("第一步：选择处理模式")
+        self.grp_mode.setFont(QFont("微软雅黑", 11, QFont.Weight.Bold))
         layout_mode = QHBoxLayout()
 
         self.rb_web = QRadioButton("网页手动模式 (推荐 DeepSeek  / ChatGPT)")
@@ -120,18 +121,18 @@ class MainWindow(QMainWindow):
             "QPushButton { background-color: #673AB7; color: white; border-radius: 5px; padding: 5px; }"
             "QPushButton:hover { background-color: #5E35B1; }"
         )
-        self.btn_tutorial.clicked.connect(self.open_tutorial)
+        self.btn_tutorial.clicked.connect(self.start_tour)
 
         # 将两个按钮加入布局
         layout_mode.addWidget(self.btn_api_config)
         layout_mode.addWidget(self.btn_tutorial)
 
-        grp_mode.setLayout(layout_mode)
-        main_layout.addWidget(grp_mode)
+        self.grp_mode.setLayout(layout_mode)
+        main_layout.addWidget(self.grp_mode)
 
         # 4. 组件选择 (Checkboxes)
-        grp_comp = QGroupBox("第二步：选择组装内容")
-        grp_comp.setFont(QFont("微软雅黑", 11, QFont.Weight.Bold))
+        self.grp_comp = QGroupBox("第二步：选择组装内容")
+        self.grp_comp.setFont(QFont("微软雅黑", 11, QFont.Weight.Bold))
         layout_comp = QVBoxLayout()
 
         # --- 4.1 预设单选按钮（使用 QButtonGroup 管理） ---
@@ -210,8 +211,8 @@ class MainWindow(QMainWindow):
         if count % 4 != 0:
             layout_comp.addLayout(row_layout)
 
-        grp_comp.setLayout(layout_comp)
-        main_layout.addWidget(grp_comp)
+        self.grp_comp.setLayout(layout_comp)
+        main_layout.addWidget(self.grp_comp)
 
         # 初始化复选框状态（应用默认预设）
         self.apply_preset("thesis")
@@ -438,10 +439,65 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.log("API 配置已更新")
 
-    def open_tutorial(self):
-        """打开图片教程窗口"""
-        dialog = TutorialDialog(self)
-        dialog.exec()
+    def start_tour(self):
+        # 实例化引导引擎
+        self.tour = OverlayTour(self)
+        
+        # 准备测试文件路径
+        test_file_path = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "test", "你要排版的文件.txt"))
+        
+        def load_test_file():
+            if os.path.exists(test_file_path):
+                self.on_file_loaded(test_file_path)
+            else:
+                QMessageBox.warning(self, "提示", f"测试文件未找到: {test_file_path}")
+
+        steps = [
+            {
+                "target": self.drop_area,
+                "title": "第 1 步：导入文档",
+                "text": "你可以将需要排版的 .docx 或 .txt 拖入这里。\n为了演示，点击【下一步】，我将为你自动加载测试文档。",
+                "on_next": load_test_file
+            },
+            {
+                "target": self.grp_mode,
+                "title": "第 2 步：选择模式",
+                "text": "我们推荐新手保持默认的【网页手动模式】，它可以免费使用各大 AI 的高级模型（如 DeepSeek R1），排版效果最好。"
+            },
+            {
+                "target": self.grp_comp,
+                "title": "第 3 步：选你所需",
+                "text": "默认已经为你勾选了标准【毕业论文】需要的所有部件（封面、中英文摘要、目录、正文等）。你可以根据实际情况增减。"
+            },
+            {
+                "target": self.btn_start,
+                "title": "最后一步：一键生成",
+                "text": "点击下方的【开始排版】按钮，程序会为你生成并复制专用提示词，随后弹窗会指导你去 AI 网页端进行交互。\n\n现在，就请您亲自点击这个真实按钮试试吧！"
+            }
+        ]
+        
+        self.tour.set_steps(steps)
+        self.tour.start()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        
+        # 使用 QTimer.singleShot 延迟触发首次引导检查，确保主窗口完全渲染并接管事件循环
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(100, self.check_first_launch)
+
+    def check_first_launch(self):
+        if config_manager.is_first_launch():
+            config_manager.set_first_launch(False)
+            reply = QMessageBox.question(
+                self,
+                "欢迎使用",
+                "检测到您是首次使用，是否开启实战新手引导（约需 2 分钟）？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self.start_tour()
 
     # ================= 主题切换 =================
 

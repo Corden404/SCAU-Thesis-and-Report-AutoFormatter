@@ -55,6 +55,19 @@ def save_api_config(config):
         return False
 
 
+def is_first_launch() -> bool:
+    """检查是否是首次启动 (持久化到 api_config.json)"""
+    config = load_api_config()
+    return config.get("is_first_launch", True)
+
+
+def set_first_launch(val: bool):
+    """设置首次启动状态 (持久化到 api_config.json)"""
+    config = load_api_config()
+    config["is_first_launch"] = val
+    save_api_config(config)
+
+
 def get_api_presets():
     return API_PRESETS
 

@@ -10,7 +10,6 @@ __pycache__/
 # Local/temporary build artifacts
 /temp/
 /test.jpg
-/test/
 
 # Generated outputs (keep source templates under assets/)
 
@@ -21,3 +20,10 @@ Output_*.docx
 # OS
 .DS_Store
 Thumbs.db
+
+# AI
+GEMINI.md
+
+# 原始资源
+/原始资源/
+/md/
